@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multiprojekt-Dashboard – Modernisierungsprozess hbs</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="tooltip" class="tooltip" hidden></div>
+
+<header class="app-header">
+  <div class="header-main">
+    <h1 id="dashTitle">Dashboard – Multiprojektmanagement</h1>
+    <p class="subtitle">
+      Datenstand:
+      <input type="date" id="dataDate" aria-label="Datenstand">
+      <span class="sep">|</span>
+      <span id="sourceText"></span>
+    </p>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="overview" role="tab" aria-selected="true">Übersicht</button>
+    <button class="tab" data-tab="timeline" role="tab" aria-selected="false">Zeitplan</button>
+    <button class="tab" data-tab="changelog" role="tab" aria-selected="false">Änderungslog</button>
+  </nav>
+</header>
+
+<main>
+
+<section id="tab-overview" class="tab-panel active">
+
+  <div class="toolbar">
+    <div class="filters">
+      <select id="filterProgram"><option value="">Alle Programme</option></select>
+      <select id="filterBereich"><option value="">Alle Bereiche</option></select>
+      <select id="filterStatus">
+        <option value="">Alle Status</option>
+        <option value="🟢">🟢 Im Plan</option>
+        <option value="🟡">🟡 Beobachtung</option>
+        <option value="🔴">🔴 Kritisch</option>
+        <option value="⚪">⚪ Nicht gestartet</option>
+        <option value="✅">✅ Abgeschlossen</option>
+      </select>
+      <select id="filterRisk">
+        <option value="">Alle Risiken</option>
+        <option value="H">H – Hoch</option>
+        <option value="M">M – Mittel</option>
+        <option value="N">N – Niedrig</option>
+      </select>
+      <input type="search" id="filterSearch" placeholder="Projekt suchen…">
+    </div>
+    <div class="actions">
+      <button id="btnAddProject" class="btn btn-primary">+ Neues Projekt</button>
+      <button id="btnExport" class="btn">JSON exportieren</button>
+      <button id="btnImport" class="btn">JSON importieren</button>
+      <input type="file" id="fileImport" accept="application/json" hidden>
+      <button id="btnReset" class="btn btn-ghost">Auf Vorlage zurücksetzen</button>
+    </div>
+  </div>
+
+  <div class="kpi-grid" id="kpiGrid"></div>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>Status-Verteilung</h3>
+      <div id="chartStatus" class="chart-body"></div>
+      <div id="legendStatus" class="chart-legend"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Budget je Programm (geplant vs. verbraucht)</h3>
+      <div id="chartBudget" class="chart-body"></div>
+      <div id="legendBudget" class="chart-legend"></div>
+    </div>
+  </div>
+
+  <div id="tableContainer"></div>
+</section>
+
+<section id="tab-timeline" class="tab-panel">
+  <p class="hint">Zeitraum 2023–2026 je Quartal. 🟩 durchgeführt/aktiv · 🟨 geplant · 🟦 Daueraufgabe/laufend.</p>
+  <div id="ganttContainer" class="gantt-scroll"></div>
+</section>
+
+<section id="tab-changelog" class="tab-panel">
+  <form id="changeForm" class="change-form">
+    <input type="text" id="changeAuthor" placeholder="Von (Name)" required>
+    <input type="date" id="changeDate" required>
+    <input type="text" id="changeWhat" placeholder="Was wurde geändert?" required>
+    <input type="text" id="changeNote" placeholder="Bemerkung (optional)">
+    <button type="submit" class="btn btn-primary">Eintragen</button>
+  </form>
+  <div id="changelogContainer"></div>
+</section>
+
+</main>
+
+<div id="modalRoot"></div>
+
+<footer class="app-footer">
+  Ampel: 🟢 Im Plan &nbsp; 🟡 Leichte Verzögerung / Beobachtung &nbsp; 🔴 Kritisch / Handlungsbedarf &nbsp; ⚪ Noch nicht gestartet / Pausiert &nbsp; ✅ Abgeschlossen
+  &nbsp;|&nbsp; Risiko: H = Hoch &nbsp; M = Mittel &nbsp; N = Niedrig
+</footer>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
