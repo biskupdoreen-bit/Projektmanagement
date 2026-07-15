@@ -30,6 +30,15 @@
 
 <section id="tab-overview" class="tab-panel active">
 
+  <div class="sheet-panel">
+    <span class="sheet-panel-label">🔗 Google-Sheet-Datenquelle:</span>
+    <input type="url" id="sheetUrlInput" placeholder="CSV-Link des veröffentlichten Google Sheets einfügen…">
+    <button id="btnConnectSheet" class="btn btn-primary">Verbinden</button>
+    <button id="btnRefreshSheet" class="btn">Jetzt aktualisieren</button>
+    <button id="btnDisconnectSheet" class="btn btn-ghost" hidden>Verbindung trennen</button>
+    <span id="sheetSyncStatus" class="sheet-sync-status">Nicht verbunden – Projekte sind lokal editierbar.</span>
+  </div>
+
   <div class="toolbar">
     <div class="filters">
       <select id="filterProgram"><option value="">Alle Programme</option></select>

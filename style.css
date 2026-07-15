@@ -93,6 +93,15 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 
 .hint { color: var(--text-secondary); font-size: 0.88rem; }
 
+.sheet-panel {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--surface-1); border: 1px solid var(--card-border); border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 16px;
+}
+.sheet-panel-label { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.sheet-panel input[type=url] { flex: 1; min-width: 220px; }
+.sheet-sync-status { font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
+
 .toolbar {
   display: flex; justify-content: space-between; align-items: center;
   flex-wrap: wrap; gap: 10px; margin-bottom: 18px;
@@ -113,6 +122,8 @@ select, input[type=text], input[type=search], input[type=number], input[type=dat
 .btn-primary { background: var(--series-1); border-color: var(--series-1); color: #fff; }
 .btn-primary:hover { opacity: 0.9; }
 .btn-ghost { color: var(--text-secondary); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:disabled:hover { border-color: var(--card-border); }
 .btn-danger { color: var(--status-critical); border-color: var(--status-critical); }
 
 .kpi-grid {
