@@ -40,16 +40,27 @@ const PROGRAM_SHORT = {
   "SONSTIGES": "Sonstiges"
 };
 
+const SHEET_HEADERS = [
+  "Programm", "Projektname", "Bereich", "Verantwortlich", "Status", "Phase",
+  "Budget geplant", "Budget verbraucht", "PT Stab geplant", "PT Stab ist", "Externe PT",
+  "BR-pflichtig", "BR-Status", "Risiko", "Meilenstein", "Meilenstein-Datum"
+];
+
 /* ---------- State ---------- */
 
 let state = loadState();
 
 function loadState() {
+  let s;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) { /* ignore corrupt storage */ }
-  return structuredClone(SEED_DATA);
+    s = raw ? JSON.parse(raw) : structuredClone(SEED_DATA);
+  } catch (e) {
+    s = structuredClone(SEED_DATA);
+  }
+  s.meta.sheetUrl = s.meta.sheetUrl || "";
+  s.meta.lastSync = s.meta.lastSync || "";
+  return s;
 }
 
 function saveState() {
@@ -62,6 +73,169 @@ function nextId(prefix, list) {
   while (list.some(x => x.id === `${prefix}-${n}`)) n++;
   return `${prefix}-${n}`;
 }
+
+/* ---------- Google-Sheet-Anbindung (nur lesend) ---------- */
+
+function slugify(s) {
+  return (s || "").toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function parseCSV(text) {
+  // Einfacher CSV-Parser mit Unterstuetzung fuer "..."-Felder (auch mit Kommas/Zeilenumbruechen).
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { field += c; }
+    } else if (c === '"') { inQuotes = true; }
+    else if (c === ',') { row.push(field); field = ""; }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c === '\r') { /* ignore */ }
+    else { field += c; }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+  const headers = rows[0].map(h => h.trim());
+  return rows.slice(1).filter(r => r.some(v => v.trim() !== "")).map(r => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (r[i] || "").trim());
+    return obj;
+  });
+}
+
+function normalizeProgram(raw) {
+  const v = (raw || "").trim();
+  const hit = PROGRAM_ORDER.find(p => p === v || p.toLowerCase() === v.toLowerCase());
+  if (hit) return hit;
+  const short = Object.entries(PROGRAM_SHORT).find(([, s]) => s.toLowerCase() === v.toLowerCase());
+  if (short) return short[0];
+  return PROGRAM_ORDER.includes(v) ? v : (v || "SONSTIGES");
+}
+
+function normalizeStatus(raw) {
+  const v = (raw || "").trim();
+  if (STATUS_OPTIONS.includes(v)) return v;
+  const hit = Object.entries(STATUS_LABEL).find(([, label]) => label.toLowerCase() === v.toLowerCase());
+  return hit ? hit[0] : "⚪";
+}
+
+function parseGermanNumber(raw) {
+  const v = (raw || "").trim().replace(/[€\s]/g, "");
+  if (v === "") return null;
+  const normalized = v.includes(",") ? v.replace(/\./g, "").replace(",", ".") : v;
+  const n = Number(normalized);
+  return isNaN(n) ? null : n;
+}
+
+function normalizeBR(raw) {
+  const v = (raw || "").trim();
+  return BR_OPTIONS.includes(v) ? v : "Offen";
+}
+function normalizeBRStatus(raw) {
+  const v = (raw || "").trim();
+  return BR_STATUS_OPTIONS.includes(v) ? v : "–";
+}
+function normalizeRisk(raw) {
+  const v = (raw || "").trim().toUpperCase();
+  return RISK_OPTIONS.includes(v) ? v : "";
+}
+
+function rowsToProjects(rows) {
+  const existingById = new Map(state.projects.map(p => [p.id, p]));
+  return rows.map(r => {
+    const name = r["Projektname"] || "";
+    const id = slugify(name) || nextId("projekt", []);
+    const prev = existingById.get(id);
+    return {
+      id,
+      program: normalizeProgram(r["Programm"]),
+      name,
+      bereich: r["Bereich"] || "",
+      verantwortlich: r["Verantwortlich"] || "",
+      status: normalizeStatus(r["Status"]),
+      phase: PHASE_OPTIONS.includes(r["Phase"]) ? r["Phase"] : "",
+      budgetPlanned: parseGermanNumber(r["Budget geplant"]),
+      budgetUsed: parseGermanNumber(r["Budget verbraucht"]),
+      ptPlanned: parseGermanNumber(r["PT Stab geplant"]),
+      ptActual: parseGermanNumber(r["PT Stab ist"]),
+      externalPT: parseGermanNumber(r["Externe PT"]),
+      brRequired: normalizeBR(r["BR-pflichtig"]),
+      brStatus: normalizeBRStatus(r["BR-Status"]),
+      risk: normalizeRisk(r["Risiko"]),
+      milestone: r["Meilenstein"] || "",
+      milestoneDate: r["Meilenstein-Datum"] || "",
+      planStatus: prev ? prev.planStatus : "",
+      timeline: prev ? prev.timeline : new Array(state.quarters.length).fill(null)
+    };
+  });
+}
+
+let sheetSyncError = "";
+
+async function syncFromSheet(url, { silent } = {}) {
+  const statusEl = document.getElementById("sheetSyncStatus");
+  try {
+    if (!silent && statusEl) statusEl.textContent = "Lade …";
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const rows = parseCSV(text);
+    if (!rows.length) throw new Error("Keine Datenzeilen gefunden");
+    state.projects = rowsToProjects(rows);
+    state.meta.sheetUrl = url;
+    state.meta.lastSync = new Date().toISOString();
+    sheetSyncError = "";
+    saveState();
+    populateFilterOptions();
+    renderAll();
+    renderSheetPanel();
+  } catch (err) {
+    sheetSyncError = err.message || String(err);
+    renderSheetPanel();
+  }
+}
+
+function renderSheetPanel() {
+  const statusEl = document.getElementById("sheetSyncStatus");
+  const urlInput = document.getElementById("sheetUrlInput");
+  if (!statusEl || !urlInput) return;
+  urlInput.value = state.meta.sheetUrl || "";
+  if (sheetSyncError) {
+    statusEl.textContent = "Fehler: " + sheetSyncError;
+    statusEl.style.color = "var(--status-critical)";
+  } else if (state.meta.sheetUrl && state.meta.lastSync) {
+    statusEl.textContent = "Zuletzt synchronisiert: " + new Date(state.meta.lastSync).toLocaleString("de-DE");
+    statusEl.style.color = "var(--text-secondary)";
+  } else {
+    statusEl.textContent = "Nicht verbunden – Projekte sind lokal editierbar.";
+    statusEl.style.color = "var(--text-secondary)";
+  }
+  document.getElementById("btnAddProject").disabled = !!state.meta.sheetUrl;
+  document.getElementById("btnDisconnectSheet").hidden = !state.meta.sheetUrl;
+}
+
+document.getElementById("btnConnectSheet").addEventListener("click", () => {
+  const url = document.getElementById("sheetUrlInput").value.trim();
+  if (!url) { alert("Bitte zuerst den CSV-Link des veröffentlichten Google Sheets eintragen."); return; }
+  syncFromSheet(url);
+});
+document.getElementById("btnRefreshSheet").addEventListener("click", () => {
+  if (state.meta.sheetUrl) syncFromSheet(state.meta.sheetUrl);
+});
+document.getElementById("btnDisconnectSheet").addEventListener("click", () => {
+  if (confirm("Verbindung zum Google Sheet trennen? Die Projekte bleiben in ihrem letzten Stand erhalten und sind wieder lokal editierbar.")) {
+    state.meta.sheetUrl = "";
+    state.meta.lastSync = "";
+    saveState();
+    renderSheetPanel();
+    renderAll();
+  }
+});
 
 /* ---------- Filters ---------- */
 
@@ -251,8 +425,8 @@ function renderBudgetChart() {
 
 /* ---------- Render: Table ---------- */
 
-function selectHtml(id, options, current, labelFn) {
-  return `<select data-field="${id}">` +
+function selectHtml(id, options, current, labelFn, disabled) {
+  return `<select data-field="${id}" ${disabled ? "disabled" : ""}>` +
     options.map(o => `<option value="${o}" ${o === current ? "selected" : ""}>${labelFn ? labelFn(o) : (o || "–")}</option>`).join("") +
     `</select>`;
 }
@@ -260,6 +434,8 @@ function selectHtml(id, options, current, labelFn) {
 function renderTable() {
   const list = filteredProjects();
   const container = document.getElementById("tableContainer");
+  const readOnly = !!state.meta.sheetUrl;
+  const dis = readOnly ? "disabled" : "";
 
   let rows = "";
   PROGRAM_ORDER.forEach(prog => {
@@ -272,30 +448,32 @@ function renderTable() {
       rows += `<tr data-id="${p.id}">
         <td>${p.name}</td>
         <td>
-          <input type="text" data-field="bereich" value="${p.bereich || ""}" placeholder="Bereich" style="width:170px;margin-bottom:2px">
-          <input type="text" data-field="verantwortlich" value="${p.verantwortlich || ""}" placeholder="Verantwortlich" style="width:170px">
+          <input type="text" data-field="bereich" value="${p.bereich || ""}" placeholder="Bereich" style="width:170px;margin-bottom:2px" ${dis}>
+          <input type="text" data-field="verantwortlich" value="${p.verantwortlich || ""}" placeholder="Verantwortlich" style="width:170px" ${dis}>
         </td>
-        <td>${selectHtml("status", STATUS_OPTIONS, p.status)}</td>
-        <td>${selectHtml("phase", PHASE_OPTIONS, p.phase, v => v || "–")}</td>
-        <td class="num"><input type="number" data-field="budgetPlanned" value="${p.budgetPlanned ?? ""}" style="width:90px" placeholder="€"></td>
-        <td class="num"><input type="number" data-field="budgetUsed" value="${p.budgetUsed ?? ""}" style="width:90px" placeholder="€"></td>
+        <td>${selectHtml("status", STATUS_OPTIONS, p.status, null, readOnly)}</td>
+        <td>${selectHtml("phase", PHASE_OPTIONS, p.phase, v => v || "–", readOnly)}</td>
+        <td class="num"><input type="number" data-field="budgetPlanned" value="${p.budgetPlanned ?? ""}" style="width:90px" placeholder="€" ${dis}></td>
+        <td class="num"><input type="number" data-field="budgetUsed" value="${p.budgetUsed ?? ""}" style="width:90px" placeholder="€" ${dis}></td>
         <td class="num">${fmtEUR(rest)}</td>
-        <td class="num"><input type="number" data-field="ptPlanned" value="${p.ptPlanned ?? ""}" style="width:60px"></td>
-        <td class="num"><input type="number" data-field="ptActual" value="${p.ptActual ?? ""}" style="width:60px"></td>
-        <td class="num"><input type="number" data-field="externalPT" value="${p.externalPT ?? ""}" style="width:60px"></td>
-        <td>${selectHtml("brRequired", BR_OPTIONS, p.brRequired)}</td>
-        <td>${selectHtml("brStatus", BR_STATUS_OPTIONS, p.brStatus)}</td>
-        <td>${selectHtml("risk", RISK_OPTIONS, p.risk, v => v || "–")}</td>
+        <td class="num"><input type="number" data-field="ptPlanned" value="${p.ptPlanned ?? ""}" style="width:60px" ${dis}></td>
+        <td class="num"><input type="number" data-field="ptActual" value="${p.ptActual ?? ""}" style="width:60px" ${dis}></td>
+        <td class="num"><input type="number" data-field="externalPT" value="${p.externalPT ?? ""}" style="width:60px" ${dis}></td>
+        <td>${selectHtml("brRequired", BR_OPTIONS, p.brRequired, null, readOnly)}</td>
+        <td>${selectHtml("brStatus", BR_STATUS_OPTIONS, p.brStatus, null, readOnly)}</td>
+        <td>${selectHtml("risk", RISK_OPTIONS, p.risk, v => v || "–", readOnly)}</td>
         <td>
-          <input type="text" data-field="milestone" value="${p.milestone || ""}" placeholder="Meilenstein" style="width:130px;margin-bottom:2px">
-          <input type="date" data-field="milestoneDate" value="${p.milestoneDate || ""}" style="width:130px">
+          <input type="text" data-field="milestone" value="${p.milestone || ""}" placeholder="Meilenstein" style="width:130px;margin-bottom:2px" ${dis}>
+          <input type="date" data-field="milestoneDate" value="${p.milestoneDate || ""}" style="width:130px" ${dis}>
         </td>
-        <td class="row-actions"><button data-action="delete" title="Projekt löschen">🗑</button></td>
+        <td class="row-actions">${readOnly ? "" : `<button data-action="delete" title="Projekt löschen">🗑</button>`}</td>
       </tr>`;
     });
   });
 
-  container.innerHTML = `<div class="table-scroll"><table>
+  container.innerHTML = `
+    ${readOnly ? `<p class="hint">Diese Tabelle wird aus dem verknüpften Google Sheet geladen und ist hier nur lesbar. Bearbeitet die Werte im Sheet und klickt oben auf „Jetzt aktualisieren".</p>` : ""}
+    <div class="table-scroll"><table>
     <thead><tr>
       <th>Projektname</th><th>Bereich / Verantwortlich</th><th>Status</th><th>Phase</th>
       <th>Budget geplant</th><th>Budget verbraucht</th><th>Restprognose</th>
@@ -304,6 +482,8 @@ function renderTable() {
     </tr></thead>
     <tbody>${rows || `<tr><td colspan="15" class="hint">Keine Projekte im aktuellen Filter.</td></tr>`}</tbody>
   </table></div>`;
+
+  if (readOnly) return;
 
   container.querySelectorAll("tbody tr[data-id]").forEach(tr => {
     const id = tr.dataset.id;
@@ -565,4 +745,10 @@ populateFilterOptions();
 renderMeta();
 renderAll();
 renderChangelog();
+renderSheetPanel();
 document.getElementById("changeDate").value = new Date().toISOString().slice(0, 10);
+
+if (state.meta.sheetUrl) {
+  syncFromSheet(state.meta.sheetUrl, { silent: true });
+  setInterval(() => { if (state.meta.sheetUrl) syncFromSheet(state.meta.sheetUrl, { silent: true }); }, 5 * 60 * 1000);
+}

@@ -62,6 +62,41 @@ Um den Datenstand zu sichern oder mit anderen zu teilen:
 **„Auf Vorlage zurücksetzen"** verwirft alle Änderungen und stellt den
 Ausgangsstand aus der Excel-Datei wieder her (mit Sicherheitsabfrage).
 
+## Optional: Projektliste aus Google Sheets anbinden (nur lesend)
+
+Statt Projekte direkt im Dashboard zu pflegen, könnt ihr sie zentral in
+einem Google Sheet führen – das Dashboard lädt sie dann automatisch beim
+Öffnen und alle 5 Minuten neu. Solange eine Sheet-Quelle verbunden ist,
+wird die Projekttabelle im Dashboard **nur lesend** angezeigt (Bearbeitung
+findet im Sheet statt); „+ Neues Projekt" ist dann deaktiviert.
+
+1. Neues Google Sheet anlegen und die Datei `google-sheet-vorlage.csv` aus
+   diesem Repo importieren (Datei → Importieren → Hochladen), oder die
+   Spaltenüberschriften manuell anlegen:
+   `Programm, Projektname, Bereich, Verantwortlich, Status, Phase,
+   Budget geplant, Budget verbraucht, PT Stab geplant, PT Stab ist,
+   Externe PT, BR-pflichtig, BR-Status, Risiko, Meilenstein,
+   Meilenstein-Datum`
+   - **Status** akzeptiert die Ampel-Texte: `Im Plan`, `Beobachtung`,
+     `Kritisch`, `Nicht gestartet`, `Abgeschlossen`
+   - **Programm** muss einem der 5 Programme entsprechen (z. B.
+     `Programm NEUE ARBEIT`)
+   - Zahlenfelder bitte ohne Tausenderpunkte eintragen (z. B. `60000`)
+2. Im Sheet: **Datei → Freigeben → Im Web veröffentlichen**. Tabellenblatt
+   auswählen, Format **„Kommagetrennte Werte (.csv)"**, veröffentlichen.
+   ⚠️ Der veröffentlichte Link ist für jeden mit dem Link öffentlich
+   abrufbar (ohne Login) – bei sensiblen Budgetzahlen abwägen, ob das
+   passt, oder diese Option nicht nutzen.
+3. Den angezeigten Link kopieren und im Dashboard oben unter „🔗
+   Google-Sheet-Datenquelle" einfügen, auf **„Verbinden"** klicken.
+4. Ab jetzt zeigt das Dashboard automatisch den aktuellen Sheet-Stand;
+   „Jetzt aktualisieren" holt manuell den neuesten Stand,
+   „Verbindung trennen" schaltet zurück auf lokale Bearbeitung im
+   Dashboard (der zuletzt geladene Stand bleibt erhalten).
+
+Zeitplan (Gantt) und Änderungslog bleiben unabhängig davon weiterhin lokal
+im Dashboard editierbar.
+
 ## Technische Hinweise
 
 - Reines HTML/CSS/JavaScript, keine Frameworks, keine Build-Schritte,
